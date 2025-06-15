@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: moonlight
+    env: node
+    buildCommand: "npm i"
+    startCommand: "node index.js"
+    plan: free
+    region: oregon
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        value: "Your MongoDB Url"
+        
+      - key: PRIVATE
+        value: "false"
+        
+      - key: BOT_NAME
+        value: "Bot Name"
+        
+      - key: OWNER_NAME
+        value: "Your Name"
+
+      - key: OWNER_NUMBER
+        value: "Your Number (owner number not Bot)"
+        
+      - key: MAKER
+        value: "Maker or Your name"
+
+      # Social media links
+      - key: SOCIAL_MEDIA_LINK
+        value: "https://instagram.com/yourname"
+
+      - key: GROUP_LINK
+        value: "Add Your Group Link"
