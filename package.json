@@ -26,7 +26,7 @@
 		"MD",
 		"baileys-md"
 	],
-	"homepage": "https://github.com/shizothetechie/moonlight",
+	"homepage": "https://github.com/terrizevdev/VERONICA-AI",
 	"author": {
 		"name": "Yugesh Singh"
 	},
@@ -35,7 +35,7 @@
 		"url": "git+https://github.com/shizothetechie/moonlight.git"
 	},
 	"bugs": {
-		"url": "https://github.com/shizothetechie/moonlight/issues"
+		"url": "https://github.com/terrizevdev/VERONICA-AI/issues"
 	},
 	"license": "GPL-3.0-or-later",
 	"dependencies": {
