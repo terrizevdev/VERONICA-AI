@@ -1,0 +1,29 @@
+{
+	"name": "baileys-pair",
+	"version": "1.0.1",
+	"description": "baileys session",
+	"main": "server.js",
+	"type": "module",
+	"scripts": {
+		"start": "node server.js",
+		"build": "echo 'No build step required'"
+	},
+	"author": "Terri",
+	"license": "MIT",
+	"dependencies": {
+	    "awesome-phonenumber": "^5.9.0",
+		"@whiskeysockets/baileys": "npm:@fizzxydev/baileys-pro@^8.5.12",
+		"cfonts": "^3.2.0",
+		"chalk": "^5.3.0",
+		"cors": "^2.8.5",
+		"dotenv": "^16.4.5",
+		"express": "^4.18.2",
+		"fs-extra": "^11.2.0",
+		"pg": "^8.13.1",
+		"pino": "^8.15.1",
+		"yargs": "^17.6.0"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	}
+}

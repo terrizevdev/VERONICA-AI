@@ -1,0 +1,11 @@
+[phases.setup]
+cmds = ["corepack enable", "yarn set version stable"]
+
+[phases.install]
+cmds = ["yarn install"]
+
+[phases.build]
+cmds = ["yarn build || true"]
+
+[start]
+cmd = "npm start"
