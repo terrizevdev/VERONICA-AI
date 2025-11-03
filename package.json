@@ -12,7 +12,7 @@
 	"license": "MIT",
 	"dependencies": {
 	    "awesome-phonenumber": "^5.9.0",
-		"@whiskeysockets/baileys": "npm:@fizzxydev/baileys-pro@^8.5.12",
+		"@whiskeysockets/baileys": "npm:wileys",
 		"cfonts": "^3.2.0",
 		"chalk": "^5.3.0",
 		"cors": "^2.8.5",
