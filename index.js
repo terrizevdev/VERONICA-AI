@@ -1,3 +1,4 @@
+
 import * as baileys from '@whiskeysockets/baileys';
 import fs from 'fs-extra';
 import pino from 'pino';
@@ -119,26 +120,25 @@ async function getPairingCode(phone) {
 				}
 
 				try {
+					// Remove any existing + and ensure it's a string of digits
 					const digitsOnly = inputNumber.replace(/^\+/, '');
-					const pn = new PhoneNumber('+' + digitsOnly);
 					
-					if (!pn.isValid()) {
-						return reject(new Error('Please provide a valid international phone number with country code. Example: 25678497xxxxxx'));
-					} else {
-						console.log(`Valid ${pn.getRegionCode()} phone number: ${pn.getNumber('e164')}`);
-						const formatted = pn.getNumber('e164').replace('+', '');
-						
-						setTimeout(async () => {
-							try {
-								let code = await conn.requestPairingCode(formatted);
-								code = code?.match(/.{1,4}/g)?.join("-") || code;
-								console.log(`Your Pairing Code: ${code}`);
-								resolve(code);
-							} catch (error) {
-								reject(new Error(`Pairing code error: ${error.message}`));
-							}
-						}, 3000);
+					if (digitsOnly.length < 11) {
+						return reject(new Error('Phone number too short. Please include country code. Example: 25678497xxxxxx'));
 					}
+					
+					console.log(`Processing phone number: ${digitsOnly}`);
+					
+					setTimeout(async () => {
+						try {
+							let code = await conn.requestPairingCode(digitsOnly);
+							code = code?.match(/.{1,4}/g)?.join("-") || code;
+							console.log(`Your Pairing Code: ${code}`);
+							resolve(code);
+						} catch (error) {
+							reject(new Error(`Pairing code error: ${error.message}`));
+						}
+					}, 3000);
 				} catch (error) {
 					reject(new Error('Invalid phone number format. Please include country code. Example: 25678497xxxxxx'));
 				}
