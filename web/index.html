@@ -144,15 +144,22 @@
 			const loadingSpinner = document.querySelector('.loading-spinner');
 			const phoneNumberInput = document.getElementById('phone-number');
 
-			// Only allow digits
+			// Only allow digits and remove any spaces
 			phoneNumberInput.addEventListener('input', () => {
 				let inputVal = phoneNumberInput.value.replace(/\D/g, '');
 				inputVal = inputVal.slice(0, 15);
 				phoneNumberInput.value = inputVal;
 			});
 
+			// Prevent space key from being entered
+			phoneNumberInput.addEventListener('keydown', (e) => {
+				if (e.key === ' ') {
+					e.preventDefault();
+				}
+			});
+
 			pairBtn.addEventListener('click', () => {
-				// Remove ALL non-digit characters
+				// Remove ALL non-digit characters (including any spaces that might get through)
 				const phoneNumber = phoneNumberInput.value.replace(/\D/g, '');
 
 				if (!phoneNumber || phoneNumber.length < 11) {
