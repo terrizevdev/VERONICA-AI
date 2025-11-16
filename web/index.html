@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 	<head>
@@ -143,7 +144,7 @@
 			const loadingSpinner = document.querySelector('.loading-spinner');
 			const phoneNumberInput = document.getElementById('phone-number');
 
-			// Auto-format phone number for display only
+			// Only allow digits
 			phoneNumberInput.addEventListener('input', () => {
 				let inputVal = phoneNumberInput.value.replace(/\D/g, '');
 				inputVal = inputVal.slice(0, 15);
@@ -151,11 +152,11 @@
 			});
 
 			pairBtn.addEventListener('click', () => {
-				// Remove ALL non-digit characters and add + prefix
+				// Remove ALL non-digit characters
 				const phoneNumber = phoneNumberInput.value.replace(/\D/g, '');
 
 				if (!phoneNumber || phoneNumber.length < 11) {
-					statusMessage.textContent = 'Invalid phone number. Please include country code.';
+					statusMessage.textContent = 'Phone number too short. Please include country code.';
 					statusMessage.style.color = 'red';
 					return;
 				}
@@ -163,8 +164,8 @@
 				loadingSpinner.style.display = 'block';
 				statusMessage.textContent = '';
 
-				// Send with + prefix automatically added
-				fetch(`/pair?phone=%2B${phoneNumber}`)
+				// Send plain digits without + prefix
+				fetch(`/pair?phone=${phoneNumber}`)
 					.then(response => response.json())
 					.then(data => {
 						loadingSpinner.style.display = 'none';
