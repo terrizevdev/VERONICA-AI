@@ -12,8 +12,8 @@
 	"license": "MIT",
 	"dependencies": {
 	    "awesome-phonenumber": "^5.9.0",
-		"jimp": "latest",
-		"@whiskeysockets/baileys": "^7.0.0-rc.9",
+		"jimp": "^0.16.1",
+    "@whiskeysockets/baileys": "npm:baileys-pro@latest",
 		"cfonts": "^3.2.0",
 		"chalk": "^5.3.0",
 		"cors": "^2.8.5",
