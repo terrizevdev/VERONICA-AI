@@ -59,7 +59,7 @@ app.get('/pair', async (req, res) => {
 	if (!phone) {
 		return res.json({ error: 'Provide Valid Phone Number' });
 	}
-	
+
 	try {
 		const code = await getPairingCode(phone);
 		res.json({ code: code });
@@ -102,90 +102,105 @@ async function getPairingCode(phone) {
 
 			const conn = baileys.makeWASocket({
 				version: waVersion,
-				printQRInTerminal: true,
 				logger: logger,
 				browser: baileys.Browsers.macOS("Safari"),
 				auth: {
 					creds: state.creds,
 					keys: baileys.makeCacheableSignalKeyStore(state.keys, logger)
 				}
+				// NOTE: intentionally not using printQRInTerminal and not handling QR at all
 			});
 
+			// Save credentials when updated
+			conn.ev.on('creds.update', saveCreds);
+
+			// Only use pairing code flow if not already registered
 			if (!conn.authState.creds.registered) {
-	
 				let inputNumber = String(phone || '').replace(/[^0-9+]/g, '');
-				
+
 				if (!inputNumber) {
+					// close socket to clean up
+					try { conn.end(); } catch (e) {}
 					return reject(new Error('Please provide a phone number'));
 				}
 
+				// Normalize by removing leading + if present
+				const digitsOnly = inputNumber.replace(/^\+/, '');
+
+				// Validate using awesome-phonenumber if available
 				try {
-					// Remove any existing + and ensure it's a string of digits
-					const digitsOnly = inputNumber.replace(/^\+/, '');
-					
-					if (digitsOnly.length < 11) {
-						return reject(new Error('Phone number too short. Please include country code. Example: 25678497xxxxxx'));
+					const pn = new PhoneNumber(digitsOnly);
+					if (!pn.isValid()) {
+						try { conn.end(); } catch (e) {}
+						return reject(new Error('Invalid phone number. Include country code, e.g. 25678497xxxxxx'));
 					}
-					
-					console.log(`Processing phone number: ${digitsOnly}`);
-					
-					setTimeout(async () => {
-						try {
-							let code = await conn.requestPairingCode(digitsOnly);
-							code = code?.match(/.{1,4}/g)?.join("-") || code;
-							console.log(`Your Pairing Code: ${code}`);
-							resolve(code);
-						} catch (error) {
-							reject(new Error(`Pairing code error: ${error.message}`));
-						}
-					}, 3000);
+				} catch (err) {
+					// fallback length check
+					if (digitsOnly.length < 11) {
+						try { conn.end(); } catch (e) {}
+						return reject(new Error('Phone number too short. Include country code, e.g. 25678497xxxxxx'));
+					}
+				}
+
+				// request pairing code
+				try {
+					// requestPairingCode expects number in international format without +
+					const pairingNumber = digitsOnly;
+					const rawCode = await conn.requestPairingCode(pairingNumber);
+					const formatted = (rawCode || '').toString().match(/.{1,4}/g)?.join("-") || rawCode;
+					resolve(formatted);
 				} catch (error) {
-					reject(new Error('Invalid phone number format. Please include country code. Example: 25678497xxxxxx'));
+					try { conn.end(); } catch (e) {}
+					reject(new Error(`Pairing code error: ${error?.message || error}`));
 				}
 			}
 
-			conn.ev.on('creds.update', saveCreds);
+			// connection.update - handle open/close and other lifecycle events, but do NOT handle QR
 			conn.ev.on('connection.update', async update => {
 				console.log('Connection update:', update);
 				const { connection, lastDisconnect } = update;
 
 				if (connection === 'open') {
-					await baileys.delay(10000);
-					
-					await conn.sendMessage(conn.user.id, { text: accessKey });
-					
-					const terri = `
+					try {
+						await baileys.delay(10000);
+
+						// send access key and info to the connected user
+						await conn.sendMessage(conn.user.id, { text: accessKey });
+
+						const terri = `
 *💫sᴇssɪᴏɴ ɪᴅ ɢᴇɴᴇʀᴀᴛᴇᴅ💫*
 ╔═════◇
 ║ ❤️‍🔥『••• 𝗩𝗶𝘀𝗶𝘁 𝗙𝗼𝗿 𝗛𝗲𝗹𝗽 •••』
-║❒ 𝐓𝐮𝐭𝐨𝐫𝐢𝐚𝐥: _youtube.com/@terrizev_
+║❒ 𝐓𝐮𝐭𝐨𝐫𝐢𝐚𝐥: _ youtube.com/@terrizev _
 ║❒ 𝐎𝐰𝐧𝐞𝐫: _Terri_
-║❒ 𝐑𝐞𝐩𝐨: https://github.com/VeronDev/VERONICA-AI_
-║❒ 𝐖𝐚𝐂𝐡𝐚𝐧𝐧𝐞𝐥: https://whatsapp.com/channel/0029Vb57ZHh7IUYcNttXEB3y_
+║❒ 𝐑𝐞𝐩𝐨: https://github.com/VeronDev/VERONICA-AI _
+║❒ 𝐖𝐚𝐂𝐡𝐚𝐧𝐧𝐞𝐥: https://whatsapp.com/channel/0029Vb57ZHh7IUYcNttXEB3y _
 ║🧚‍♀️🧚‍♀️
-╚══════╝
-______________________________
-Use the Quoted Session ID to Deploy your Bot.`;
-					await conn.sendMessage(conn.user.id, { 
-						text: terri 
-					}, { 
-						quoted: {
-							key: {
-								remoteJid: conn.user.id,
-								fromMe: true,
-								id: accessKey
-							},
-							message: {
-								conversation: accessKey
+╚══════╝`;
+						await conn.sendMessage(conn.user.id, { 
+							text: terri 
+						}, { 
+							quoted: {
+								key: {
+									remoteJid: conn.user.id,
+									fromMe: true,
+									id: accessKey
+								},
+								message: {
+									conversation: accessKey
+								}
 							}
-						}
-					});
+						});
 
-					const data = encryptSession('session/creds.json');
-					await saveSession(accessKey, data);
-					await baileys.delay(5000);
-					clearFolder(join(__dirname, 'session'));
-					process.send('reset');
+						const data = encryptSession('session/creds.json');
+						await saveSession(accessKey, data);
+						await baileys.delay(5000);
+						clearFolder(join(__dirname, 'session'));
+						// inform parent process to reset
+						if (typeof process.send === 'function') process.send('reset');
+					} catch (err) {
+						console.error('Error during post-open flow:', err);
+					}
 				}
 
 				if (connection === 'close') {
@@ -203,14 +218,16 @@ Use the Quoted Session ID to Deploy your Bot.`;
 					];
 
 					if (resetReasons.includes(reason)) {
-						process.send('reset');
+						if (typeof process.send === 'function') process.send('reset');
 					} else if (resetWithClearStateReasons.includes(reason)) {
 						clearFolder('./session');
-						process.send('reset');
+						if (typeof process.send === 'function') process.send('reset');
 					} else if (reason === baileys.DisconnectReason.restartRequired) {
-						getPairingCode(phone);
+						// Attempt to restart pairing flow
+						try { conn.end(); } catch (e) {}
+						getPairingCode(phone).catch(() => {});
 					} else {
-						process.send('reset');
+						if (typeof process.send === 'function') process.send('reset');
 					}
 				}
 			});
