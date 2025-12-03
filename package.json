@@ -13,7 +13,7 @@
 	"dependencies": {
 	    "awesome-phonenumber": "^5.9.0",
 		"jimp": "latest",
-		"@whiskeysockets/baileys": "npm:@rexxhayanasi/elaina-bail",
+		"@whiskeysockets/baileys": "^7.0.0-rc.9",
 		"cfonts": "^3.2.0",
 		"chalk": "^5.3.0",
 		"cors": "^2.8.5",
