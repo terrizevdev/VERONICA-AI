@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import { dirname, join } from 'node:path';
+import pg from 'pg';
+const { Pool } = pg;
 
 function encryptSession(initSession = 'creds.json') {
 	const baseDir = dirname(initSession);
@@ -79,4 +81,23 @@ function decryptSession(sessionSource = 'session.json', outputDir = './session')
 	return data;
 }
 
-export { encryptSession, decryptSession };
+// Add the missing clearSessionData function
+async function clearSessionData() {
+    try {
+        const pool = new Pool({
+            connectionString: process.env.DATABASE_URL,
+            ssl: {
+                rejectUnauthorized: false
+            }
+        });
+        
+        // Clear all sessions from the database
+        await pool.query('DELETE FROM sessions');
+        await pool.end();
+        console.log('Session data cleared successfully');
+    } catch (error) {
+        console.error('Error clearing session data:', error);
+    }
+}
+
+export { encryptSession, decryptSession, clearSessionData };
