@@ -13,7 +13,7 @@
 	"dependencies": {
 	    "awesome-phonenumber": "^5.9.0",
 		"jimp": "0.22.12",
-		"@whiskeysockets/baileys": "npm:veron-baileys@latest",
+		"@whiskeysockets/baileys": "github:what-sapp/Baileys",
 		"cfonts": "^3.2.0",
 		"chalk": "^5.3.0",
 		"cors": "^2.8.5",
