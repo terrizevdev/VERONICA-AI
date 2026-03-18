@@ -1,8 +1,8 @@
 import { Sequelize, DataTypes } from 'sequelize';
-import * as baileys from 'baileys';
+import * as baileys from '@whiskeysockets/baileys';
 import { performance } from 'perf_hooks';
 
-const DATABASE_URL = './database.db';
+const DATABASE_URL = process.env.DATABASE_URL || './database.db';
 
 // Initialize Sequelize with database URL
 const DATABASE =
@@ -22,12 +22,6 @@ const DATABASE =
 				},
 				logging: false,
 		  });
-
-// Extras for shit fixing
-
-export const clearSessionData = async () => {
-	await AuthState.destroy({ where: {} });
-};
 
 // Define AuthState model
 export const AuthState = DATABASE.define(
@@ -52,7 +46,92 @@ export const AuthState = DATABASE.define(
 		indexes: [{ fields: ['session_id', 'data_key'] }],
 	},
 );
-AuthState.sync();
+
+// Sync the model with database
+await AuthState.sync();
+
+// Clear all session data
+export const clearSessionData = async () => {
+	try {
+		await AuthState.destroy({ where: {} });
+		console.log('All session data cleared successfully');
+	} catch (error) {
+		console.error('Error clearing session data:', error);
+		throw error;
+	}
+};
+
+// Save session data
+export const saveSession = async (accessKey, sessionData) => {
+	try {
+		// Serialize and save creds
+		const serialized = JSON.stringify(bufferToJSON(sessionData.creds));
+		await AuthState.upsert({ 
+			session_id: accessKey, 
+			data_key: 'creds', 
+			data_value: serialized 
+		});
+
+		// Save keys if they exist
+		if (sessionData.keys) {
+			const entries = [];
+			for (const [type, ids] of Object.entries(sessionData.keys)) {
+				for (const [id, value] of Object.entries(ids || {})) {
+					entries.push({
+						session_id: accessKey,
+						data_key: `${type}-${id}`,
+						data_value: JSON.stringify(bufferToJSON(value)),
+					});
+				}
+			}
+			if (entries.length) {
+				await AuthState.bulkCreate(entries, { updateOnDuplicate: ['data_value'] });
+			}
+		}
+		console.log(`Session saved for key: ${accessKey}`);
+	} catch (error) {
+		console.error('Error saving session:', error);
+		throw error;
+	}
+};
+
+// Get session data
+export const getSession = async (accessKey) => {
+	try {
+		const records = await AuthState.findAll({ 
+			where: { session_id: accessKey } 
+		});
+		
+		if (!records.length) return null;
+
+		const sessionData = {
+			creds: null,
+			keys: {}
+		};
+
+		for (const record of records) {
+			const value = jsonToBuffer(JSON.parse(record.data_value));
+			
+			if (record.data_key === 'creds') {
+				sessionData.creds = value;
+			} else {
+				const [type, id] = record.data_key.split('-');
+				if (!sessionData.keys[type]) sessionData.keys[type] = {};
+				if (type === 'app-state-sync-key') {
+					sessionData.keys[type][id] = baileys.proto.Message.AppStateSyncKeyData.fromObject(value);
+				} else {
+					sessionData.keys[type][id] = value;
+				}
+			}
+		}
+
+		return sessionData;
+	} catch (error) {
+		console.error('Error getting session:', error);
+		return null;
+	}
+};
+
 // Utility functions for serialization and deserialization
 export const bufferToJSON = obj => {
 	if (Buffer.isBuffer(obj)) return { type: 'Buffer', data: Array.from(obj) };
@@ -77,7 +156,7 @@ export const profile = async (name, fn, logger) => {
 	const start = performance.now();
 	const result = await fn();
 	const end = performance.now();
-	logger.debug(`${name} took ${(end - start).toFixed(2)} ms`);
+	logger?.debug(`${name} took ${(end - start).toFixed(2)} ms`);
 	return result;
 };
 
@@ -135,7 +214,9 @@ const useSequelizeAuthState = async (sessionId, logger) => {
 								});
 							}
 						}
-						await AuthState.bulkCreate(entries, { updateOnDuplicate: ['data_value'] });
+						if (entries.length) {
+							await AuthState.bulkCreate(entries, { updateOnDuplicate: ['data_value'] });
+						}
 					},
 					logger,
 				);
