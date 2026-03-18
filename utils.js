@@ -1,129 +1,154 @@
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
-import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'url';
-import { useSingleFileAuthState } from '@whiskeysockets/baileys';
+import { Sequelize, DataTypes } from 'sequelize';
+import * as baileys from 'baileys';
+import { performance } from 'perf_hooks';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const DATABASE_URL = './database.db';
 
-/**
- * Default export expected by index.js:
- * useSequelizeAuthState(accessKey, logger)
- *
- * This wraps Baileys' useSingleFileAuthState and places the auth file under
- * ./uploads/<accessKey>/auth_info.json so each generated accessKey has its
- * own auth storage folder.
- */
-export default async function useSequelizeAuthState(accessKey = 'default', logger = undefined) {
-  const baseDir = join(__dirname, 'uploads', accessKey);
-  mkdirSync(baseDir, { recursive: true });
-  const authFile = join(baseDir, 'auth_info.json');
+// Initialize Sequelize with database URL
+const DATABASE =
+	DATABASE_URL === './database.db'
+		? new Sequelize({
+				dialect: 'sqlite',
+				storage: DATABASE_URL,
+				logging: false,
+		  })
+		: new Sequelize(DATABASE_URL, {
+				dialect: 'postgres',
+				ssl: true,
+				protocol: 'postgres',
+				dialectOptions: {
+					native: true,
+					ssl: { require: true, rejectUnauthorized: false },
+				},
+				logging: false,
+		  });
 
-  // Delegate to Baileys helper which provides { state, saveCreds }
-  // state will contain { creds, keys } compatible with makeWASocket usage.
-  const result = await useSingleFileAuthState(authFile);
-  return result; // { state, saveCreds }
-}
+// Extras for shit fixing
 
-/**
- * Named export expected by index.js:
- * clearSessionData()
- *
- * Removes all session folders under ./uploads to clear stored auth state.
- * Called when the app wants to reset/clear sessions.
- */
-export async function clearSessionData() {
-  const uploadsDir = join(__dirname, 'uploads');
-  if (!existsSync(uploadsDir)) return;
-  const entries = readdirSync(uploadsDir);
-  for (const entry of entries) {
-    const p = join(uploadsDir, entry);
-    try {
-      rmSync(p, { recursive: true, force: true });
-    } catch (err) {
-      // best-effort cleanup
-      console.error('Failed to remove session folder', p, err);
-    }
-  }
-}
+export const clearSessionData = async () => {
+	await AuthState.destroy({ where: {} });
+};
 
-/* --- the rest of the file keeps the encrypt/decrypt helpers the repository already had --- */
+// Define AuthState model
+export const AuthState = DATABASE.define(
+	'AuthState',
+	{
+		session_id: {
+			type: DataTypes.STRING,
+			primaryKey: true,
+		},
+		data_key: {
+			type: DataTypes.STRING,
+			primaryKey: true,
+		},
+		data_value: {
+			type: DataTypes.TEXT,
+			allowNull: false,
+		},
+	},
+	{
+		tableName: 'session',
+		timestamps: false,
+		indexes: [{ fields: ['session_id', 'data_key'] }],
+	},
+);
+AuthState.sync();
+// Utility functions for serialization and deserialization
+export const bufferToJSON = obj => {
+	if (Buffer.isBuffer(obj)) return { type: 'Buffer', data: Array.from(obj) };
+	if (Array.isArray(obj)) return obj.map(bufferToJSON);
+	if (obj && typeof obj === 'object') {
+		return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, bufferToJSON(value)]));
+	}
+	return obj;
+};
 
-function encryptSession(initSession = 'creds.json') {
-	const baseDir = dirname(initSession);
+export const jsonToBuffer = obj => {
+	if (obj?.type === 'Buffer' && Array.isArray(obj.data)) return Buffer.from(obj.data);
+	if (Array.isArray(obj)) return obj.map(jsonToBuffer);
+	if (obj && typeof obj === 'object') {
+		return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, jsonToBuffer(value)]));
+	}
+	return obj;
+};
 
-	// Read credentials file
-	const credsData = JSON.parse(readFileSync(initSession, 'utf8'));
+// Profiling function to measure performance
+export const profile = async (name, fn, logger) => {
+	const start = performance.now();
+	const result = await fn();
+	const end = performance.now();
+	logger.debug(`${name} took ${(end - start).toFixed(2)} ms`);
+	return result;
+};
 
-	// Find all app-state files
-	const files = readdirSync(baseDir);
-	const appStateFiles = files.filter(
-		file => file.startsWith('app-state-sync-key-') && file.endsWith('.json')
-	);
-
-	// Create a data structure with creds and all sync keys
-	const mergedData = {
-		creds: credsData,
-		syncKeys: {}
+// Main function for handling auth state using Sequelize
+const useSequelizeAuthState = async (sessionId, logger) => {
+	// Write data to the database
+	const writeData = async (key, data) => {
+		const serialized = JSON.stringify(bufferToJSON(data));
+		await AuthState.upsert({ session_id: sessionId, data_key: key, data_value: serialized });
 	};
 
-	// Read and store each sync key file
-	for (const file of appStateFiles) {
-		const syncKeyData = JSON.parse(readFileSync(join(baseDir, file), 'utf8'));
-		// Use the original filename as the key to maintain file association
-		mergedData.syncKeys[file] = syncKeyData;
-	}
-
-	// Encryption setup
-	const algorithm = 'aes-256-cbc';
-	const key = randomBytes(32);
-	const iv = randomBytes(16);
-	const cipher = createCipheriv(algorithm, key, iv);
-
-	// Encrypt the merged data
-	let encrypted = cipher.update(JSON.stringify(mergedData), 'utf8', 'hex');
-	encrypted += cipher.final('hex');
-
-	// Prepare the session data object
-	const sessionData = {
-		data: encrypted,
-		key: key.toString('hex'),
-		iv: iv.toString('hex'),
-		files: {
-			creds: initSession,
-			syncKeys: appStateFiles
-		}
+	// Read data from the database
+	const readData = async key => {
+		const record = await AuthState.findOne({ where: { session_id: sessionId, data_key: key } });
+		return record ? jsonToBuffer(JSON.parse(record.data_value)) : null;
 	};
-	return JSON.stringify(sessionData, null, 2);
-}
 
-function decryptSession(sessionSource = 'session.json', outputDir = './session') {
-	// Read and parse the encrypted session file
-	const encryptedData = JSON.parse(readFileSync(sessionSource, 'utf8'));
+	// Initialize credentials
+	const creds = (await profile('readCreds', () => readData('creds'), logger)) || baileys.initAuthCreds();
 
-	// Setup decryption
-	const algorithm = 'aes-256-cbc';
-	const key = Buffer.from(encryptedData.key, 'hex');
-	const iv = Buffer.from(encryptedData.iv, 'hex');
-	const decipher = createDecipheriv(algorithm, key, iv);
+	// State object containing the credentials and key management functions
+	const state = {
+		creds,
+		keys: {
+			get: async (type, ids) => {
+				return profile(
+					'keys.get',
+					async () => {
+						const keys = ids.map(id => `${type}-${id}`);
+						const records = await AuthState.findAll({
+							where: { session_id: sessionId, data_key: keys },
+						});
+						return records.reduce((acc, record) => {
+							const id = record.data_key.split('-')[1];
+							let value = jsonToBuffer(JSON.parse(record.data_value));
+							if (type === 'app-state-sync-key') value = baileys.proto.Message.AppStateSyncKeyData.fromObject(value);
+							acc[id] = value;
+							return acc;
+						}, {});
+					},
+					logger,
+				);
+			},
+			set: async data => {
+				return profile(
+					'keys.set',
+					async () => {
+						const entries = [];
+						for (const [type, ids] of Object.entries(data)) {
+							for (const [id, value] of Object.entries(ids || {})) {
+								entries.push({
+									session_id: sessionId,
+									data_key: `${type}-${id}`,
+									data_value: JSON.stringify(bufferToJSON(value)),
+								});
+							}
+						}
+						await AuthState.bulkCreate(entries, { updateOnDuplicate: ['data_value'] });
+					},
+					logger,
+				);
+			},
+		},
+	};
 
-	// Decrypt the data
-	let decrypted = decipher.update(encryptedData.data, 'hex', 'utf8');
-	decrypted += decipher.final('utf8');
-	const data = JSON.parse(decrypted);
+	// Return state with functions to save credentials and delete session
+	return {
+		state,
+		saveCreds: () => profile('saveCreds', () => writeData('creds', state.creds), logger),
+		deleteSession: () => profile('deleteSession', () => AuthState.destroy({ where: { session_id: sessionId } }), logger),
+	};
+};
 
-	// Create output directory
-	mkdirSync(outputDir, { recursive: true });
-
-	// Write credentials file
-	writeFileSync(join(outputDir, 'creds.json'), JSON.stringify(data.creds, null, 2));
-
-	// Write each sync key file with its original filename
-	for (const [filename, syncKeyData] of Object.entries(data.syncKeys)) {
-		writeFileSync(join(outputDir, filename), JSON.stringify(syncKeyData, null, 2));
-	}
-
-	return data;
-}
-
-export { encryptSession, decryptSession };
+export default useSequelizeAuthState;
