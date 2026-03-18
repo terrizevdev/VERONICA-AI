@@ -1,8 +1,53 @@
-import { mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import pg from 'pg';
-const { Pool } = pg;
+import { fileURLToPath } from 'url';
+import { useSingleFileAuthState } from '@whiskeysockets/baileys';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Default export expected by index.js:
+ * useSequelizeAuthState(accessKey, logger)
+ *
+ * This wraps Baileys' useSingleFileAuthState and places the auth file under
+ * ./uploads/<accessKey>/auth_info.json so each generated accessKey has its
+ * own auth storage folder.
+ */
+export default async function useSequelizeAuthState(accessKey = 'default', logger = undefined) {
+  const baseDir = join(__dirname, 'uploads', accessKey);
+  mkdirSync(baseDir, { recursive: true });
+  const authFile = join(baseDir, 'auth_info.json');
+
+  // Delegate to Baileys helper which provides { state, saveCreds }
+  // state will contain { creds, keys } compatible with makeWASocket usage.
+  const result = await useSingleFileAuthState(authFile);
+  return result; // { state, saveCreds }
+}
+
+/**
+ * Named export expected by index.js:
+ * clearSessionData()
+ *
+ * Removes all session folders under ./uploads to clear stored auth state.
+ * Called when the app wants to reset/clear sessions.
+ */
+export async function clearSessionData() {
+  const uploadsDir = join(__dirname, 'uploads');
+  if (!existsSync(uploadsDir)) return;
+  const entries = readdirSync(uploadsDir);
+  for (const entry of entries) {
+    const p = join(uploadsDir, entry);
+    try {
+      rmSync(p, { recursive: true, force: true });
+    } catch (err) {
+      // best-effort cleanup
+      console.error('Failed to remove session folder', p, err);
+    }
+  }
+}
+
+/* --- the rest of the file keeps the encrypt/decrypt helpers the repository already had --- */
 
 function encryptSession(initSession = 'creds.json') {
 	const baseDir = dirname(initSession);
@@ -81,23 +126,4 @@ function decryptSession(sessionSource = 'session.json', outputDir = './session')
 	return data;
 }
 
-// Add the missing clearSessionData function
-async function clearSessionData() {
-    try {
-        const pool = new Pool({
-            connectionString: process.env.DATABASE_URL,
-            ssl: {
-                rejectUnauthorized: false
-            }
-        });
-        
-        // Clear all sessions from the database
-        await pool.query('DELETE FROM sessions');
-        await pool.end();
-        console.log('Session data cleared successfully');
-    } catch (error) {
-        console.error('Error clearing session data:', error);
-    }
-}
-
-export { encryptSession, decryptSession, clearSessionData };
+export { encryptSession, decryptSession };
